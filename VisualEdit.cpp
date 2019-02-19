@@ -4,6 +4,8 @@
 
 #include "include/VisualEdit.h"
 
+//--------------------------
+// Gazebo related header files
 #include <mutex>
 #include <gazebo/common/Events.hh>
 #include <gazebo/common/Time.hh>
@@ -11,6 +13,16 @@
 #include <gazebo/transport/Node.hh>
 #include <gazebo/rendering/rendering.hh>
 #include <gazebo/msgs/color.pb.h>
+
+//-------------------------
+// ROS related header files
+#include <thread>
+#include "ros/ros.h"
+#include "ros/callback_queue.h"
+#include "ros/subscribe_options.h"
+#include "std_msgs/Float32.h"
+
+
 namespace gazebo {
 
 
@@ -52,6 +64,24 @@ namespace gazebo {
 
             /// \brief ambient color of the scene
             public: common::Color ambientColor ;
+
+            //---------------------------------------
+            /// ROS related variables
+            //---------------------------------------
+
+            /// \brief A node used for transport (ROS)
+            public: std::unique_ptr<ros::NodeHandle> rosNode ;
+
+            /// \brief A subscriber(ROS).
+            public: ros::Subscriber rosSub ;
+
+            /// \brief A callback queue that helps process messages (ROS)
+            public: ros::CallbackQueue rosQueue ;
+
+            /// \brief A thread that keeps running the rosQueue
+            public: std::thread rosQueueThread ;
+
+
     };
 
     using namespace gazebo  ;
@@ -143,6 +173,32 @@ namespace gazebo {
         // Setting up for receiving  color changing commands
         this->dataPtr->ambientColorSub = this->dataPtr->node->Subscribe(sAmbientTopicName, &VisualEdit::OnAmbientColorInfo, this);
 
+        //----------------------
+        /// Ros communication setup section
+
+        //Initialize ROS if it has not been already initialized
+        if (!ros::isInitialized()) {
+            int argc = 0 ;
+            char **argv = nullptr ;
+
+            ros::init(argc , argv , "gazebo_client" , ros::init_options::NoSigintHandler) ;
+
+        }
+
+        // Create the ROS node. This is similar to the Gazebo node
+        this->dataPtr->rosNode.reset(new ros::NodeHandle("gazebo_client")) ;
+
+        // Create a named topic and subscribe to it for background color changing of scene
+        ros::SubscribeOptions so = ros::SubscribeOptions::create<std_msgs::Float32>("/" + this->topicName + "/backgroundColor" ,
+                                                                                    1 , boost::bind(&VisualEdit::OnRosBMsg , this, _1) , ros::VoidPtr() , &this->dataPtr->rosQueue ) ;
+
+
+        this->dataPtr->rosSub = this->dataPtr->rosNode->subscribe(so) ;
+
+        //spin up the queue helper thread
+        this->dataPtr->rosQueueThread = std::thread(std::bind(&VisualEdit::QueueThread,  this)) ;
+
+
 
     }
 
@@ -162,9 +218,34 @@ namespace gazebo {
     void VisualEdit::OnAmbientColorInfo(ConstColorPtr &_msg) {
 
         std::lock_guard<std::mutex> lock(this->dataPtr->mutex);
-        this->dataPtr->backgroundColor.Set(_msg->r() , _msg->g() , _msg->b() , 1.0) ;
-        this->dataPtr->scene->SetAmbientColor(this->dataPtr->backgroundColor) ;
+        this->dataPtr->ambientColor.Set(_msg->r() , _msg->g() , _msg->b() , 1.0) ;
+        this->dataPtr->scene->SetAmbientColor(this->dataPtr->ambientColor) ;
 
+    }
+
+
+    void VisualEdit::OnRosBMsg(const std_msgs::Float32ConstPtr &_msg) {
+
+        //const float* data1 =  _msg->data.data() ;
+
+        std::cout << "I got something" << std::endl ;
+
+        std::lock_guard<std::mutex> lock(this->dataPtr->mutex);
+        this->dataPtr->backgroundColor.Set(_msg->data , 0.0 , 0.0 , 1.0) ;
+        this->dataPtr->scene->SetBackgroundColor(this->dataPtr->backgroundColor) ;
+
+
+//
+//        std::cout << "The data received in from ROS is: " << _msg->data[0] << std::endl ;
+//        std::cout << "The data received in from ROS is: " << _msg->data[1] << std::endl ;
+//        std::cout << "The data received in from ROS is: " << _msg->data[2] << std::endl ;
+    }
+
+    void VisualEdit::QueueThread() {
+        static const double timeout = 0.01 ;
+        while(this->dataPtr->rosNode->ok()) {
+            this->dataPtr->rosQueue.callAvailable(ros::WallDuration(timeout)) ;
+        }
     }
 
     GZ_REGISTER_VISUAL_PLUGIN(VisualEdit)
