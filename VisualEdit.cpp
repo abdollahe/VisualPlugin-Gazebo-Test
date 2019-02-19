@@ -10,7 +10,7 @@
 #include <gazebo/rendering/Visual.hh>
 #include <gazebo/transport/Node.hh>
 #include <gazebo/rendering/rendering.hh>
-
+#include <gazebo/msgs/color.pb.h>
 namespace gazebo {
 
 
@@ -41,10 +41,17 @@ namespace gazebo {
 
             public: bool useWallTime;
 
-
             /// \brief Subscriber to world info.
 
-            public: transport::SubscriberPtr infoSub;
+            public: transport::SubscriberPtr backgroundColorSub;
+
+            public: transport::SubscriberPtr ambientColorSub ;
+
+            /// \brief background color of the scene
+            public: common::Color backgroundColor ;
+
+            /// \brief ambient color of the scene
+            public: common::Color ambientColor ;
     };
 
     using namespace gazebo  ;
@@ -53,7 +60,8 @@ namespace gazebo {
     }
 
     VisualEdit::~VisualEdit() {
-        this->dataPtr->infoSub.reset() ;
+        this->dataPtr->backgroundColorSub.reset() ;
+        this->dataPtr->ambientColorSub.reset() ;
         if(this->dataPtr->node)
             this->dataPtr->node->Fini() ;
     }
@@ -117,6 +125,24 @@ namespace gazebo {
 
         }
 
+        // Initialize the node
+        this->dataPtr->node = transport::NodePtr(new transport::Node()) ;
+
+        this->dataPtr->node->Init() ;
+
+
+        // Create a topic name for changing background color of scene
+        std::string sBackgroundColorTopicName = "~/" + this->topicName + "/backgroundColor" ;
+        // Create a topic name for changing ambient color of scene
+        std::string sAmbientTopicName = "~/" + this->topicName + "/ambientColor" ;
+
+        ///setup the subscription and callback functions
+        // Setting up for receiving background color changing commands
+        this->dataPtr->backgroundColorSub = this->dataPtr->node->Subscribe(sBackgroundColorTopicName, &VisualEdit::OnBackgroundColorInfo, this);
+
+        // Setting up for receiving  color changing commands
+        this->dataPtr->ambientColorSub = this->dataPtr->node->Subscribe(sAmbientTopicName, &VisualEdit::OnAmbientColorInfo, this);
+
 
     }
 
@@ -125,8 +151,19 @@ namespace gazebo {
 
     }
 
-    void VisualEdit::OnInfo(ConstPosesStampedPtr &_msg) {
+    void VisualEdit::OnBackgroundColorInfo(ConstColorPtr &_msg) {
 
+        std::lock_guard<std::mutex> lock(this->dataPtr->mutex);
+        this->dataPtr->backgroundColor.Set(_msg->r() , _msg->g() , _msg->b() , 1.0) ;
+        this->dataPtr->scene->SetBackgroundColor(this->dataPtr->backgroundColor) ;
+
+    }
+
+    void VisualEdit::OnAmbientColorInfo(ConstColorPtr &_msg) {
+
+        std::lock_guard<std::mutex> lock(this->dataPtr->mutex);
+        this->dataPtr->backgroundColor.Set(_msg->r() , _msg->g() , _msg->b() , 1.0) ;
+        this->dataPtr->scene->SetAmbientColor(this->dataPtr->backgroundColor) ;
 
     }
 

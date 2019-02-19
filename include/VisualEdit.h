@@ -18,6 +18,7 @@ class GAZEBO_VISIBLE VisualEdit : public VisualPlugin {
 
 private :
      std::unique_ptr<VisualEditPluginPrivate> dataPtr;
+     std::string topicName = "visual_edit" ;
 public:
      VisualEdit() ;
      ~VisualEdit() override ;
@@ -25,8 +26,8 @@ public:
 
 private :
     void Update() ;
-    void OnInfo(ConstPosesStampedPtr &_msg);
-
+    void OnBackgroundColorInfo(ConstColorPtr &_msg);
+    void OnAmbientColorInfo(ConstColorPtr &_msg) ;
 
 };
 }
